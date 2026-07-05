@@ -42,10 +42,12 @@ def write_todo(cfg: Config, batch_path: Path) -> Path | None:
     for s in suggestions:
         by_repo.setdefault(s["github"], []).append(s)
 
+    base_branches = {r.github: (r.branch or "the default branch") for r in cfg.repos}
     repo_sections = []
     for github, items in by_repo.items():
+        base = base_branches.get(github, "the default branch")
         blocks = "".join(_suggestion_block(i, s) for i, s in enumerate(items, 1))
-        repo_sections.append(f"### Repo: `{github}`\n\n{blocks}")
+        repo_sections.append(f"### Repo: `{github}` (base branch: `{base}`)\n\n{blocks}")
 
     state_rel = batch_path.relative_to(cfg.state_dir.parent)
     protected = ", ".join(f"`{p}`" for p in cfg.protected_paths)
@@ -68,7 +70,7 @@ Implement the following reviewed improvement suggestions.
 {chr(10).join(repo_sections)}
 
 Instructions:
-1. For each repo above: create branch `{branch}` from the default branch,
+1. For each repo above: create branch `{branch}` from its listed base branch,
    implement the suggestions as focused, working changes that match the
    existing code style, and skip (with a note) anything unsafe or impossible
    from the available context. Run tests if the repo has them.

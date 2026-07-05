@@ -72,7 +72,8 @@ def generate_changes(cfg: Config, repo: RepoConfig, checkout: Path,
     import anthropic  # imported lazily: only needed in api mode
 
     client = anthropic.Anthropic()
-    digest = build_code_digest(checkout, cfg.max_code_chars, cfg.secret_file_patterns)
+    digest = build_code_digest(checkout, cfg.max_code_chars,
+                               cfg.secret_file_patterns, repo.exclude_globs)
     user_content = (
         f"Repository: {repo.github}\n\n"
         f"--- SUGGESTIONS TO IMPLEMENT ---\n{_format_suggestions(suggestions)}\n\n"

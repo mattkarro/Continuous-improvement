@@ -21,6 +21,11 @@ class RepoConfig:
     name: str
     github: str
     log_globs: list[str] = field(default_factory=lambda: ["logs/**/*.log", "*.log"])
+    # Branch to review/update; None = the remote's default branch.
+    branch: str | None = None
+    # Extra glob patterns (relative paths) excluded from zips and digests,
+    # e.g. generated state or vendored data that would only add noise.
+    exclude_globs: list[str] = field(default_factory=list)
 
 
 @dataclass

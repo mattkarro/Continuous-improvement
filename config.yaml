@@ -8,16 +8,30 @@
 mode: todo
 
 # Repos the improvement loop watches and updates.
+# Optional per-repo keys:
+#   branch        - review/update this branch instead of the default branch
+#   exclude_globs - extra path globs excluded from zips and review digests
 repos:
+  # NOTE: the agent repos' code currently lives on these feature branches;
+  # remove the `branch:` lines once each is merged to the default branch.
   - name: ai-gambling-agent
     github: mattkarro/ai-gambling-agent
+    branch: claude/gambling-agent-auto-bet-0fbgyn
     log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
   - name: ai-stock-agent
     github: mattkarro/ai-stock-agent
+    branch: claude/ai-stock-agent-repo-8k5c21
     log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
   - name: ai-crypto-trader
     github: mattkarro/ai-crypto-trader
+    branch: claude/crypto-trading-agent-leverage-057fk8
     log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
+  # The improvement loop reviews and improves itself, too. Batch/todo state
+  # is excluded from the digest — it's pipeline output, not code to review.
+  - name: continuous-improvement
+    github: mattkarro/Continuous-improvement
+    exclude_globs: ["state/**"]
+    log_globs: []
 
 grok:
   model: grok-4

@@ -120,6 +120,16 @@ Batch state — suggestions, run status, result branches — is committed under
   malformed-JSON reply gets one short corrective nudge instead of resending
   the full ~90K-token prompt repeatedly.
 
+## Self-improvement
+
+This repo watches **itself**: `continuous-improvement` is in the `repos` list,
+so the daily Grok review also critiques the pipeline's own code, and the
+resulting batches propose changes to the loop itself. The same guardrails
+apply — `protected_paths` stops generated changes from touching its own
+workflows, `state/**` is excluded from its digest (pipeline output, not
+code), and self-improvement branches go through the same human review as
+everything else. Nothing self-merges.
+
 ## Tuning
 
 Everything is in `config.yaml`: which repos are watched, log glob patterns,

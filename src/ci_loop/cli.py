@@ -50,8 +50,14 @@ def cmd_review(force: bool = False) -> int:
     last_review = _load_last_review(cfg)
     all_suggestions: list[dict] = []
     for repo in cfg.repos:
-        print(f"[review] refreshing {repo.github} ...")
-        checkout = clone_or_update(repo, cfg.workdir)
+        print(f"[review] refreshing {repo.github} "
+              f"(branch: {repo.branch or 'default'}) ...")
+        try:
+            checkout = clone_or_update(repo, cfg.workdir)
+        except Exception as exc:  # e.g. configured branch no longer exists
+            print(f"[review] WARNING: cannot check out {repo.name}: {exc}",
+                  file=sys.stderr)
+            continue
         sha = head_sha(checkout)
         if not force and last_review.get(repo.name, {}).get("sha") == sha:
             print(f"[review] {repo.name}: unchanged since last review "

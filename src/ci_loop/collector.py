@@ -78,11 +78,13 @@ def _default_branch(dest: Path) -> str:
 
 
 def clone_or_update(repo: RepoConfig, workdir: Path) -> Path:
-    """Clone or refresh a repo and ALWAYS leave it clean on the default branch.
+    """Clone or refresh a repo and ALWAYS leave it clean on the base branch.
 
-    A previous run may have left the checkout on a ci/improvements-* branch
-    or with leftover files; without this reset, later snapshots and updates
-    would build on top of the improvement branch instead of the real code.
+    The base branch is repo.branch if configured, otherwise the remote's
+    default branch. A previous run may have left the checkout on a
+    ci/improvements-* branch or with leftover files; without this reset,
+    later snapshots and updates would build on top of the improvement
+    branch instead of the real code.
     """
     dest = workdir / repo.name
     url = f"https://x-access-token:{github_token()}@github.com/{repo.github}.git"
@@ -92,38 +94,44 @@ def clone_or_update(repo: RepoConfig, workdir: Path) -> Path:
         workdir.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "clone", url, str(dest)], check=True)
 
-    branch = _default_branch(dest)
+    branch = repo.branch or _default_branch(dest)
     subprocess.run(["git", "-C", str(dest), "checkout", "-B", branch, f"origin/{branch}"],
                    check=True, capture_output=True)
     subprocess.run(["git", "-C", str(dest), "clean", "-fd"], check=True, capture_output=True)
     return dest
 
 
-def _iter_code_files(checkout: Path, secret_patterns: list[str]):
+def _iter_code_files(checkout: Path, secret_patterns: list[str],
+                     exclude_globs: list[str]):
     for path in sorted(checkout.rglob("*")):
         if not path.is_file():
             continue
         if any(part in EXCLUDE_DIRS for part in path.parts):
             continue
-        if is_secret_file(path.relative_to(checkout), secret_patterns):
+        rel = path.relative_to(checkout)
+        if is_secret_file(rel, secret_patterns):
+            continue
+        if any(fnmatch.fnmatch(rel.as_posix(), g) for g in exclude_globs):
             continue
         yield path
 
 
-def build_zip(checkout: Path, zip_path: Path, secret_patterns: list[str]) -> Path:
+def build_zip(checkout: Path, zip_path: Path, secret_patterns: list[str],
+              exclude_globs: list[str] | None = None) -> Path:
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for path in _iter_code_files(checkout, secret_patterns):
+        for path in _iter_code_files(checkout, secret_patterns, exclude_globs or []):
             zf.write(path, path.relative_to(checkout))
     return zip_path
 
 
-def build_code_digest(checkout: Path, max_chars: int, secret_patterns: list[str]) -> str:
+def build_code_digest(checkout: Path, max_chars: int, secret_patterns: list[str],
+                      exclude_globs: list[str] | None = None) -> str:
     """Flatten the repo into a text digest (tree + file contents) for the LLM."""
     tree_lines = []
     file_sections = []
     used = 0
-    for path in _iter_code_files(checkout, secret_patterns):
+    for path in _iter_code_files(checkout, secret_patterns, exclude_globs or []):
         rel = path.relative_to(checkout)
         tree_lines.append(str(rel))
         if path.suffix.lower() not in TEXT_EXTENSIONS:
@@ -183,12 +191,13 @@ def head_sha(checkout: Path) -> str:
 def snapshot_from_checkout(cfg: Config, repo: RepoConfig, checkout: Path) -> RepoSnapshot:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     zip_path = cfg.artifacts_dir / date / f"{repo.name}.zip"
-    build_zip(checkout, zip_path, cfg.secret_file_patterns)
+    build_zip(checkout, zip_path, cfg.secret_file_patterns, repo.exclude_globs)
     return RepoSnapshot(
         repo=repo,
         checkout=checkout,
         zip_path=zip_path,
-        code_digest=build_code_digest(checkout, cfg.max_code_chars, cfg.secret_file_patterns),
+        code_digest=build_code_digest(checkout, cfg.max_code_chars,
+                                      cfg.secret_file_patterns, repo.exclude_globs),
         logs=collect_logs(checkout, repo, cfg.max_log_chars, cfg.secret_file_patterns),
     )
 

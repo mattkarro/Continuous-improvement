@@ -1,0 +1,50 @@
+name: Claude batch runner
+
+on:
+  schedule:
+    # One entry per slot in config.yaml (slots_utc) — spreads Claude API
+    # usage across different times of day / token-usage windows.
+    - cron: "15 6 * * *"
+    - cron: "45 11 * * *"
+    - cron: "20 17 * * *"
+    - cron: "50 22 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: claude-batch-runner
+  cancel-in-progress: false
+
+jobs:
+  run-batch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run next due batch through Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+          PYTHONPATH: src
+        run: python -m ci_loop.cli run-batch
+
+      - name: Commit batch state
+        if: always()
+        run: |
+          git config user.name "continuous-improvement-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add state/
+          if ! git diff --cached --quiet; then
+            git commit -m "Batch run: $(date -u '+%F %H:%M') UTC"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+          fi

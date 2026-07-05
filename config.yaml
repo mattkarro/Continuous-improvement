@@ -1,0 +1,38 @@
+# Repos the improvement loop watches and updates.
+repos:
+  - name: ai-gambling-agent
+    github: mattkarro/ai-gambling-agent
+    log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
+  - name: ai-stock-agent
+    github: mattkarro/ai-stock-agent
+    log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
+  - name: ai-crypto-trader
+    github: mattkarro/ai-crypto-trader
+    log_globs: ["logs/**/*.log", "logs/**/*.json", "*.log"]
+
+grok:
+  model: grok-4
+  base_url: https://api.x.ai/v1
+  # Cap on how many characters of code digest are sent per repo review.
+  max_code_chars: 300000
+  max_log_chars: 60000
+
+claude:
+  model: claude-opus-4-8
+  max_tokens: 64000
+
+batching:
+  # Suggestions from the daily Grok review are split into this many batches.
+  batches_per_day: 4
+  # Each batch runs at its own UTC time so Claude API hits are spread
+  # across different times of day / token-usage windows.
+  slots_utc: ["06:15", "11:45", "17:20", "22:50"]
+  max_suggestions_per_batch: 5
+
+# Branch prefix used when pushing Claude's code updates to a target repo.
+update_branch_prefix: ci/improvements
+
+paths:
+  workdir: workdir        # clones of target repos (gitignored)
+  artifacts: artifacts    # zip snapshots (gitignored, uploaded as CI artifacts)
+  state: state            # batch/suggestion state (committed)

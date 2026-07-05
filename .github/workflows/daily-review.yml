@@ -1,0 +1,48 @@
+name: Daily Grok review
+
+on:
+  schedule:
+    - cron: "0 5 * * *"   # 05:00 UTC daily — before the first Claude slot
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Snapshot repos, run Grok review, create batches
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+          PYTHONPATH: src
+        run: python -m ci_loop.cli review
+
+      - name: Upload code snapshot zips
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-snapshots-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Commit batch state
+        run: |
+          git config user.name "continuous-improvement-bot"
+          git config user.email "ci-bot@users.noreply.github.com"
+          git add state/
+          if ! git diff --cached --quiet; then
+            git commit -m "Daily review: create batches for $(date -u +%F)"
+            git pull --rebase origin ${{ github.ref_name }}
+            git push origin HEAD:${{ github.ref_name }}
+          fi

@@ -55,6 +55,16 @@ batching:
 # Branch prefix used when pushing Claude's code updates to a target repo.
 update_branch_prefix: ci/improvements
 
+todos:
+  # Where todo prompt files go in todo mode:
+  #   repo    - committed to a folder in each target repo's base branch, so a
+  #             Claude Code session opened in that repo finds its own todos,
+  #             works them, and deletes them (default)
+  #   central - written to state/todos/ in this repo only
+  destination: repo
+  # Folder created in each target repo for its todo files.
+  repo_dir: todos
+
 verify:
   # api mode pre-push gate: syntax-check changed .py files (no code execution).
   compile_check: true

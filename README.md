@@ -24,12 +24,16 @@ Automated daily improvement cycle for the agent repos
 
 Step 4 runs in one of two modes (`mode:` in `config.yaml`):
 
-- **`todo` (default):** the daily review also writes a ready-to-run prompt
-  file per batch under `state/todos/<date>/batch_N.md`. Open a Claude Code
-  session around each batch's suggested slot time, paste the prompt (or point
-  the session at the file), and it implements the changes, pushes the branch,
-  and marks the batch done. All Claude work runs on your **Claude
-  subscription** — the only API cost is the daily Grok review (~cents/day).
+- **`todo` (default):** the daily review turns each batch into todo prompt
+  files. With `todos.destination: repo` (default) each target repo gets its
+  own `todos/` folder committed to its base branch — open a Claude Code
+  session **in that repo**, tell it to work the todos, and it implements the
+  changes, deletes the todo file, and pushes. (`todos.destination: central`
+  writes them to `state/todos/` in this repo instead.) All Claude work runs
+  on your **Claude subscription** — the only API cost is the daily Grok
+  review (~cents/day). The `todos/` folder is excluded from future reviews,
+  and the todo commit doesn't count as a code change for the skip-unchanged
+  check.
 - **`api`:** the `batch-runner` workflow calls the Claude API automatically at
   each slot — fully autonomous, but metered API cost (~$4–5/day at full digest
   size with Opus). To enable: set `mode: api`, uncomment the cron block in

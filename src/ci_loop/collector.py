@@ -191,13 +191,16 @@ def head_sha(checkout: Path) -> str:
 def snapshot_from_checkout(cfg: Config, repo: RepoConfig, checkout: Path) -> RepoSnapshot:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     zip_path = cfg.artifacts_dir / date / f"{repo.name}.zip"
-    build_zip(checkout, zip_path, cfg.secret_file_patterns, repo.exclude_globs)
+    # The todo folder is loop output living in the target repo — reviewing
+    # it would make Grok critique its own previous suggestions.
+    excludes = repo.exclude_globs + [f"{cfg.todo_repo_dir}/**"]
+    build_zip(checkout, zip_path, cfg.secret_file_patterns, excludes)
     return RepoSnapshot(
         repo=repo,
         checkout=checkout,
         zip_path=zip_path,
         code_digest=build_code_digest(checkout, cfg.max_code_chars,
-                                      cfg.secret_file_patterns, repo.exclude_globs),
+                                      cfg.secret_file_patterns, excludes),
         logs=collect_logs(checkout, repo, cfg.max_log_chars, cfg.secret_file_patterns),
     )
 

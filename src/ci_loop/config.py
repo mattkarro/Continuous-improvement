@@ -46,6 +46,8 @@ class Config:
     protected_paths: list[str]
     verify_compile: bool
     verify_run_tests: bool
+    todo_destination: str  # "repo" or "central"
+    todo_repo_dir: str
     workdir: Path
     artifacts_dir: Path
     state_dir: Path
@@ -66,6 +68,12 @@ def load_config(path: Path | None = None) -> Config:
     if mode not in ("todo", "api"):
         raise ValueError(f"config 'mode' must be 'todo' or 'api', got {mode!r}")
 
+    todos = raw.get("todos", {})
+    todo_destination = todos.get("destination", "repo")
+    if todo_destination not in ("repo", "central"):
+        raise ValueError(
+            f"config 'todos.destination' must be 'repo' or 'central', got {todo_destination!r}")
+
     return Config(
         mode=mode,
         repos=repos,
@@ -84,6 +92,8 @@ def load_config(path: Path | None = None) -> Config:
         protected_paths=list(security.get("protected_paths", DEFAULT_PROTECTED_PATHS)),
         verify_compile=bool(raw.get("verify", {}).get("compile_check", True)),
         verify_run_tests=bool(raw.get("verify", {}).get("run_tests", False)),
+        todo_destination=todo_destination,
+        todo_repo_dir=todos.get("repo_dir", "todos"),
         workdir=ROOT / paths.get("workdir", "workdir"),
         artifacts_dir=ROOT / paths.get("artifacts", "artifacts"),
         state_dir=ROOT / paths.get("state", "state"),

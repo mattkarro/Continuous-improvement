@@ -91,11 +91,25 @@ def cmd_review(force: bool = False) -> int:
               f"{len(data['suggestions'])} suggestions ({data['status']})")
 
     if cfg.mode == "todo":
-        todos = todo_writer.write_todos(cfg, paths)
-        for t in todos:
-            print(f"[review] todo prompt written: {t}")
-        print("[review] todo mode: work these in Claude Code sessions through "
-              "the day (no Claude API usage)")
+        if cfg.todo_destination == "repo":
+            pushed = todo_writer.push_repo_todos(cfg, paths)
+            for name, info in pushed.items():
+                print(f"[review] todos pushed to {name}: {', '.join(info['files'])}")
+                # The todo commit must not count as "repo changed" tomorrow.
+                if name in last_review:
+                    last_review[name]["sha"] = info["sha"]
+            _save_last_review(cfg, last_review)
+            for p in paths:
+                if json.loads(p.read_text())["status"] == "pending":
+                    batcher.update_batch(p, status="delegated")
+            print("[review] todo mode: open a Claude Code session in each repo "
+                  "and work its todos/ folder (no Claude API usage)")
+        else:
+            todos = todo_writer.write_todos(cfg, paths)
+            for t in todos:
+                print(f"[review] todo prompt written: {t}")
+            print("[review] todo mode: work these in Claude Code sessions through "
+                  "the day (no Claude API usage)")
     return 0
 
 

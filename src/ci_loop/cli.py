@@ -12,7 +12,7 @@ import json
 import sys
 from datetime import datetime, timezone
 
-from . import batcher, claude_updater, grok_reviewer
+from . import batcher, claude_updater, grok_reviewer, todo_writer
 from .collector import snapshot_repo
 from .config import load_config
 
@@ -42,11 +42,23 @@ def cmd_review() -> int:
         data = json.loads(p.read_text())
         print(f"[review] {p.name}: slot {data['slot_utc']} UTC, "
               f"{len(data['suggestions'])} suggestions ({data['status']})")
+
+    if cfg.mode == "todo":
+        todos = todo_writer.write_todos(cfg, paths)
+        for t in todos:
+            print(f"[review] todo prompt written: {t}")
+        print("[review] todo mode: work these in Claude Code sessions through "
+              "the day (no Claude API usage)")
     return 0
 
 
 def cmd_run_batch() -> int:
     cfg = load_config()
+    if cfg.mode != "api":
+        print("[run-batch] mode is 'todo' — batches are worked via the prompt "
+              "files in state/todos/ using Claude Code, not the Claude API. "
+              "Set mode: api in config.yaml to enable automatic runs.")
+        return 0
     path = batcher.next_due_batch(cfg)
     if path is None:
         print("[run-batch] no batch due; nothing to do")

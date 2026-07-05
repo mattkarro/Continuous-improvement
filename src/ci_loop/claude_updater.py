@@ -7,8 +7,6 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-import anthropic
-
 from .collector import build_code_digest, clone_or_update
 from .config import Config, RepoConfig
 
@@ -67,6 +65,8 @@ def _format_suggestions(suggestions: list[dict]) -> str:
 def generate_changes(cfg: Config, repo: RepoConfig, checkout: Path,
                      suggestions: list[dict]) -> dict:
     """One Claude call: suggestions + code snapshot -> file operations."""
+    import anthropic  # imported lazily: only needed in api mode
+
     client = anthropic.Anthropic()
     digest = build_code_digest(checkout, cfg.max_code_chars)
     user_content = (

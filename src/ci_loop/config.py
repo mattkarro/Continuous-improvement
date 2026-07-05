@@ -18,6 +18,7 @@ class RepoConfig:
 
 @dataclass
 class Config:
+    mode: str  # "todo" or "api"
     repos: list[RepoConfig]
     grok_model: str
     grok_base_url: str
@@ -44,7 +45,12 @@ def load_config(path: Path | None = None) -> Config:
     batching = raw.get("batching", {})
     paths = raw.get("paths", {})
 
+    mode = raw.get("mode", "todo")
+    if mode not in ("todo", "api"):
+        raise ValueError(f"config 'mode' must be 'todo' or 'api', got {mode!r}")
+
     return Config(
+        mode=mode,
         repos=repos,
         grok_model=grok.get("model", "grok-4"),
         grok_base_url=grok.get("base_url", "https://api.x.ai/v1"),

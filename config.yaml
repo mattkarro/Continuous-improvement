@@ -1,3 +1,12 @@
+# How Claude implements the batched suggestions:
+#   todo (default) - the daily review writes ready-to-run prompt files under
+#                    state/todos/; you work them in Claude Code sessions
+#                    throughout the day (subscription usage, no Claude API cost).
+#   api            - scheduled workflows call the Claude API automatically at
+#                    each slot (fully autonomous, metered API cost). Also
+#                    re-enable the cron block in .github/workflows/batch-runner.yml.
+mode: todo
+
 # Repos the improvement loop watches and updates.
 repos:
   - name: ai-gambling-agent

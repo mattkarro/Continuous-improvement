@@ -1,13 +1,16 @@
 name: Claude batch runner
 
+# NOTE: only used in API mode (mode: api in config.yaml). In the default
+# todo mode this workflow is a no-op — batches are worked as Claude Code
+# prompts from state/todos/ instead of via the Claude API.
 on:
-  schedule:
-    # One entry per slot in config.yaml (slots_utc) — spreads Claude API
-    # usage across different times of day / token-usage windows.
-    - cron: "15 6 * * *"
-    - cron: "45 11 * * *"
-    - cron: "20 17 * * *"
-    - cron: "50 22 * * *"
+  # API mode: uncomment the schedule below (one entry per slot in
+  # config.yaml slots_utc) to spread Claude API usage across the day.
+  # schedule:
+  #   - cron: "15 6 * * *"
+  #   - cron: "45 11 * * *"
+  #   - cron: "20 17 * * *"
+  #   - cron: "50 22 * * *"
   workflow_dispatch: {}
 
 permissions:

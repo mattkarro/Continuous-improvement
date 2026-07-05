@@ -196,15 +196,19 @@ def verify_changes(cfg: Config, checkout: Path, applied: list[str]) -> list[str]
     has_tests = any((checkout / marker).exists()
                     for marker in ("tests", "pytest.ini", "conftest.py"))
     if cfg.verify_run_tests and has_tests:
+        # NOTE: this executes the target repo's code (opt-in for that reason).
+        # Hard 300s timeout; no cache provider so .pytest_cache never ends up
+        # committed to the improvement branch by the later `git add -A`.
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "pytest", "-x", "-q"],
-                cwd=checkout, capture_output=True, text=True, timeout=600,
+                [sys.executable, "-m", "pytest", "-x", "-q", "--no-header",
+                 "-p", "no:cacheprovider"],
+                cwd=checkout, capture_output=True, text=True, timeout=300,
             )
             if proc.returncode not in (0, 5):  # 5 = no tests collected
                 failures.append("pytest failed:\n" + (proc.stdout + proc.stderr)[-3000:])
         except subprocess.TimeoutExpired:
-            failures.append("pytest timed out after 600s")
+            failures.append("pytest timed out after 300s")
     return failures
 
 

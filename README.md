@@ -68,8 +68,14 @@ Add these **Actions secrets** to this repository
 | Secret | What it is |
 |---|---|
 | `XAI_API_KEY` | x.ai API key (Grok reviews) |
-| `REPO_ACCESS_TOKEN` | GitHub PAT with `repo` scope on the three agent repos (clone + push branches) |
+| `REPO_ACCESS_TOKEN` | GitHub PAT with `repo` scope on the target repos (clone + push branches) |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude subscription token (`claude setup-token`) for the auto todo-processing workflow |
 | `ANTHROPIC_API_KEY` | Anthropic API key — **only needed in `api` mode** |
+
+This repo also processes **its own todos automatically**:
+`.github/workflows/process-todos.yml` runs Claude Code 3x daily (offset from
+ai-stock-agent's schedule), works every file in `todos/`, verifies
+`py_compile` + the test suite, commits, and deletes completed todos.
 
 ## Running locally
 

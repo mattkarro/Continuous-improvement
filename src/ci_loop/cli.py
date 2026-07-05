@@ -1,20 +1,25 @@
 """CLI entry points for the continuous improvement loop.
 
   python -m ci_loop.cli review     # daily: snapshot repos, Grok review, create batches
-  python -m ci_loop.cli run-batch  # scheduled: run the next due batch through Claude
+  python -m ci_loop.cli run-batch  # api mode: run the next due batch through Claude
   python -m ci_loop.cli status     # show recent batches
+
+Logs are human-readable by default; set CI_LOOP_LOG_FORMAT=json for
+structured output. Each command emits a metrics summary line at the end.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 
 from . import batcher, claude_updater, grok_reviewer, todo_writer
 from .collector import clone_or_update, head_sha, snapshot_from_checkout
 from .config import load_config, load_dotenv
+from .obs import Metrics, log
 
 
 def _last_review_path(cfg):
@@ -34,45 +39,54 @@ def _save_last_review(cfg, data: dict) -> None:
 
 def _report_expired(expired) -> None:
     for p in expired:
-        print(f"[state] marked stale: {p}")
+        log(f"[state] marked stale: {p}", logging.WARNING)
 
 
 def cmd_review(force: bool = False) -> int:
     cfg = load_config()
+    metrics = Metrics()
     _report_expired(batcher.expire_stale(cfg))
 
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if any(batcher.batch_dir(cfg, date).glob("batch_*.json")):
-        print(f"[review] batches for {date} already exist; not overwriting. "
-              f"Delete state/batches/{date}/ to re-run today's review.")
+        log(f"[review] batches for {date} already exist; not overwriting. "
+            f"Delete state/batches/{date}/ to re-run today's review.")
         return 0
 
     last_review = _load_last_review(cfg)
     all_suggestions: list[dict] = []
+    outcomes: dict[str, str] = {}
     for repo in cfg.repos:
-        print(f"[review] refreshing {repo.github} "
-              f"(branch: {repo.branch or 'default'}) ...")
+        log(f"[review] refreshing {repo.github} (branch: {repo.branch or 'default'})")
         try:
             checkout = clone_or_update(repo, cfg.workdir)
         except Exception as exc:  # e.g. configured branch no longer exists
-            print(f"[review] WARNING: cannot check out {repo.name}: {exc}",
-                  file=sys.stderr)
+            log(f"[review] cannot check out {repo.name}: {exc}", logging.WARNING)
+            metrics.inc("repos_failed")
+            outcomes[repo.name] = "checkout-failed"
             continue
         sha = head_sha(checkout)
         if not force and last_review.get(repo.name, {}).get("sha") == sha:
-            print(f"[review] {repo.name}: unchanged since last review "
-                  f"({sha[:10]}), skipping (--force to override)")
+            log(f"[review] {repo.name}: unchanged since last review "
+                f"({sha[:10]}), skipping (--force to override)")
+            metrics.inc("repos_skipped_unchanged")
+            outcomes[repo.name] = "skipped-unchanged"
             continue
 
         snap = snapshot_from_checkout(cfg, repo, checkout)
-        print(f"[review] zip: {snap.zip_path}")
-        print(f"[review] sending to Grok ({cfg.grok_model}) ...")
+        log(f"[review] zip: {snap.zip_path}")
+        log(f"[review] sending to Grok ({cfg.grok_model})")
         try:
             suggestions = grok_reviewer.review_snapshot(cfg, snap)
         except RuntimeError as exc:
-            print(f"[review] WARNING: {exc}", file=sys.stderr)
+            log(f"[review] Grok review failed for {repo.name}: {exc}", logging.WARNING)
+            metrics.inc("repos_failed")
+            outcomes[repo.name] = "grok-failed"
             continue  # sha not recorded -> this repo is retried next run
-        print(f"[review] {len(suggestions)} suggestions for {repo.name}")
+        log(f"[review] {len(suggestions)} suggestions for {repo.name}")
+        metrics.inc("repos_reviewed")
+        metrics.inc("suggestions", len(suggestions))
+        outcomes[repo.name] = f"reviewed ({len(suggestions)} suggestions)"
         all_suggestions.extend(suggestions)
         last_review[repo.name] = {
             "sha": sha,
@@ -80,21 +94,26 @@ def cmd_review(force: bool = False) -> int:
         }
 
     _save_last_review(cfg, last_review)
+    log("[review] per-repo outcome: "
+        + "; ".join(f"{name}: {result}" for name, result in outcomes.items()))
     if not all_suggestions:
-        print("[review] no suggestions produced; nothing to batch")
+        log("[review] no suggestions produced; nothing to batch")
+        metrics.emit("review")
         return 0
 
     paths = batcher.create_batches(cfg, all_suggestions)
+    metrics.inc("batches_created", len(paths))
     for p in paths:
         data = json.loads(p.read_text())
-        print(f"[review] {p.name}: slot {data['slot_utc']} UTC, "
-              f"{len(data['suggestions'])} suggestions ({data['status']})")
+        log(f"[review] {p.name}: slot {data['slot_utc']} UTC, "
+            f"{len(data['suggestions'])} suggestions ({data['status']})")
 
     if cfg.mode == "todo":
         if cfg.todo_destination == "repo":
             pushed = todo_writer.push_repo_todos(cfg, paths)
             for name, info in pushed.items():
-                print(f"[review] todos pushed to {name}: {', '.join(info['files'])}")
+                log(f"[review] todos pushed to {name}: {', '.join(info['files'])}")
+                metrics.inc("todos_pushed", len(info["files"]))
                 # The todo commit must not count as "repo changed" tomorrow.
                 if name in last_review:
                     last_review[name]["sha"] = info["sha"]
@@ -102,33 +121,36 @@ def cmd_review(force: bool = False) -> int:
             for p in paths:
                 if json.loads(p.read_text())["status"] == "pending":
                     batcher.update_batch(p, status="delegated")
-            print("[review] todo mode: open a Claude Code session in each repo "
-                  "and work its todos/ folder (no Claude API usage)")
+            log("[review] todo mode: open a Claude Code session in each repo "
+                "and work its todos/ folder (no Claude API usage)")
         else:
             todos = todo_writer.write_todos(cfg, paths)
+            metrics.inc("todos_written", len(todos))
             for t in todos:
-                print(f"[review] todo prompt written: {t}")
-            print("[review] todo mode: work these in Claude Code sessions through "
-                  "the day (no Claude API usage)")
+                log(f"[review] todo prompt written: {t}")
+            log("[review] todo mode: work these in Claude Code sessions through "
+                "the day (no Claude API usage)")
+    metrics.emit("review")
     return 0
 
 
 def cmd_run_batch() -> int:
     cfg = load_config()
     if cfg.mode != "api":
-        print("[run-batch] mode is 'todo' — batches are worked via the prompt "
-              "files in state/todos/ using Claude Code, not the Claude API. "
-              "Set mode: api in config.yaml to enable automatic runs.")
+        log("[run-batch] mode is 'todo' — batches are worked via the todo "
+            "files using Claude Code, not the Claude API. Set mode: api in "
+            "config.yaml to enable automatic runs.")
         return 0
+    metrics = Metrics()
     _report_expired(batcher.expire_stale(cfg))
     path = batcher.next_due_batch(cfg)
     if path is None:
-        print("[run-batch] no batch due; nothing to do")
+        log("[run-batch] no batch due; nothing to do")
         return 0
 
     data = json.loads(path.read_text())
-    print(f"[run-batch] running {path} (slot {data['slot_utc']} UTC, "
-          f"{len(data['suggestions'])} suggestions)")
+    log(f"[run-batch] running {path} (slot {data['slot_utc']} UTC, "
+        f"{len(data['suggestions'])} suggestions)")
     batcher.update_batch(path, status="running",
                          started_at=datetime.now(timezone.utc).isoformat())
 
@@ -139,26 +161,36 @@ def cmd_run_batch() -> int:
     results, failed = [], False
     for repo_name, suggestions in by_repo.items():
         repo = next(r for r in cfg.repos if r.name == repo_name)
-        print(f"[run-batch] {repo_name}: {len(suggestions)} suggestions -> Claude")
+        log(f"[run-batch] {repo_name}: {len(suggestions)} suggestions -> Claude")
         try:
             result = claude_updater.run_batch_for_repo(
                 cfg, repo, suggestions, data["date"], data["index"])
-            print(f"[run-batch] {repo_name}: {len(result['applied'])} changes, "
-                  f"branch={result['branch']}")
+            log(f"[run-batch] {repo_name}: {len(result['applied'])} changes, "
+                f"branch={result['branch']}")
+            metrics.inc("changes_applied", len(result["applied"]))
+            metrics.inc("changes_skipped_protected", len(result.get("skipped_protected", [])))
             for s in result.get("skipped_protected", []):
-                print(f"[run-batch] {repo_name}: SKIPPED {s}")
+                log(f"[run-batch] {repo_name}: skipped {s}", logging.WARNING)
+            for o in result.get("suggestion_outcomes", []):
+                if o.get("outcome") != "implemented":
+                    log(f"[run-batch] {repo_name}: suggestion "
+                        f"{o.get('outcome')}: {o.get('title')} — {o.get('note')}",
+                        logging.WARNING)
             if result.get("verify_failures"):
                 failed = True
+                metrics.inc("verify_failures", len(result["verify_failures"]))
                 for f in result["verify_failures"]:
-                    print(f"[run-batch] {repo_name}: VERIFY FAILED (not pushed): {f}",
-                          file=sys.stderr)
+                    log(f"[run-batch] {repo_name}: verify FAILED (not pushed): {f}",
+                        logging.ERROR)
         except Exception as exc:  # keep going on the other repos
-            print(f"[run-batch] ERROR on {repo_name}: {exc}", file=sys.stderr)
+            log(f"[run-batch] ERROR on {repo_name}: {exc}", logging.ERROR)
             result = {"repo": repo_name, "error": str(exc)}
+            metrics.inc("repo_errors")
             failed = True
         results.append(result)
 
     batcher.update_batch(path, status="failed" if failed else "done", results=results)
+    metrics.emit("run-batch")
     return 1 if failed else 0
 
 
@@ -184,13 +216,15 @@ def cmd_status() -> int:
                 else:
                     print(f"    {r['repo']}: {len(r.get('applied', []))} changes "
                           f"-> {r.get('branch')}")
+                for o in r.get("suggestion_outcomes", []):
+                    print(f"        [{o.get('outcome')}] {o.get('title')}")
     return 0
 
 
 def main() -> int:
     loaded = load_dotenv()
     if loaded:
-        print(f"[env] loaded from .env: {', '.join(loaded)}")
+        log(f"[env] loaded from .env: {', '.join(loaded)}")
     parser = argparse.ArgumentParser(prog="ci_loop")
     sub = parser.add_subparsers(dest="command", required=True)
     p_review = sub.add_parser("review", help="snapshot repos, run Grok review, create batches")

@@ -18,6 +18,21 @@ CHANGES_SCHEMA = {
     "properties": {
         "summary": {"type": "string"},
         "commit_message": {"type": "string"},
+        "suggestion_outcomes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string",
+                              "description": "The suggestion's title, verbatim"},
+                    "outcome": {"type": "string",
+                                "enum": ["implemented", "skipped", "failed"]},
+                    "note": {"type": "string"},
+                },
+                "required": ["title", "outcome", "note"],
+                "additionalProperties": False,
+            },
+        },
         "changes": {
             "type": "array",
             "items": {
@@ -35,7 +50,7 @@ CHANGES_SCHEMA = {
             },
         },
     },
-    "required": ["summary", "commit_message", "changes"],
+    "required": ["summary", "commit_message", "suggestion_outcomes", "changes"],
     "additionalProperties": False,
 }
 
@@ -52,6 +67,8 @@ Rules:
   configuration — such changes will be rejected.
 - If a suggestion is unsafe or cannot be implemented from the available
   context, skip it and explain why in the summary.
+- Report one suggestion_outcomes entry per suggestion (title verbatim,
+  outcome implemented/skipped/failed, and a brief note).
 """
 
 
@@ -227,6 +244,7 @@ def run_batch_for_repo(cfg: Config, repo: RepoConfig, suggestions: list[dict],
     return {
         "repo": repo.name,
         "summary": result.get("summary", ""),
+        "suggestion_outcomes": result.get("suggestion_outcomes", []),
         "applied": applied,
         "skipped_protected": skipped,
         "verify_failures": verify_failures,

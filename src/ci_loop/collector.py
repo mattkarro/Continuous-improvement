@@ -27,9 +27,15 @@ REDACTION_PATTERNS = [
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9\-_.=+/]{16,}"),
+    # key=value shapes. The value must LOOK like a secret literal: either a
+    # quoted string, or a bare token containing a digit. Plain code such as
+    # `token = os.environ.get("GH_TOKEN")` must NOT match — redacting it
+    # corrupts the digest and makes the reviewer "find" bugs that don't exist.
     re.compile(
         r"(?i)\b(api[_-]?key|secret|token|password|passwd|private[_-]?key|auth)"
-        r"(\s*[=:]\s*)['\"]?[A-Za-z0-9\-_.=+/]{12,}['\"]?"
+        r"(\s*[=:]\s*)"
+        r"(['\"][^'\"\s]{12,}['\"]"
+        r"|(?=[A-Za-z0-9\-_=+/]*\d)[A-Za-z0-9\-_=+/]{12,})"
     ),
 ]
 

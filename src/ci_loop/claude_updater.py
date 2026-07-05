@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -150,6 +152,43 @@ def apply_changes(checkout: Path, changes: list[dict],
     return applied, skipped
 
 
+def verify_changes(cfg: Config, checkout: Path, applied: list[str]) -> list[str]:
+    """Cheap pre-push gate. Returns a list of failure descriptions.
+
+    - Syntax-check every changed .py file (ast.parse — no bytecode side
+      effects, no code execution).
+    - Optionally run the repo's pytest suite (off by default: it executes
+      repo code, so it's opt-in via verify.run_tests).
+    """
+    failures: list[str] = []
+    if cfg.verify_compile:
+        for entry in applied:
+            action, _, rel = entry.partition(" ")
+            if action == "delete" or not rel.endswith(".py"):
+                continue
+            path = checkout / rel
+            if not path.exists():
+                continue
+            try:
+                ast.parse(path.read_text(errors="replace"), filename=rel)
+            except SyntaxError as exc:
+                failures.append(f"syntax error in {rel}: line {exc.lineno}: {exc.msg}")
+
+    has_tests = any((checkout / marker).exists()
+                    for marker in ("tests", "pytest.ini", "conftest.py"))
+    if cfg.verify_run_tests and has_tests:
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "pytest", "-x", "-q"],
+                cwd=checkout, capture_output=True, text=True, timeout=600,
+            )
+            if proc.returncode not in (0, 5):  # 5 = no tests collected
+                failures.append("pytest failed:\n" + (proc.stdout + proc.stderr)[-3000:])
+        except subprocess.TimeoutExpired:
+            failures.append("pytest timed out after 600s")
+    return failures
+
+
 def _git(checkout: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(checkout), *args],
                           capture_output=True, text=True, check=check)
@@ -176,15 +215,19 @@ def run_batch_for_repo(cfg: Config, repo: RepoConfig, suggestions: list[dict],
     result = generate_changes(cfg, repo, checkout, suggestions)
     applied, skipped = apply_changes(checkout, result.get("changes", []),
                                      cfg.protected_paths)
+    verify_failures: list[str] = []
     branch = None
     if applied:
-        branch = push_branch(cfg, checkout, result["commit_message"],
-                             batch_date, batch_index)
+        verify_failures = verify_changes(cfg, checkout, applied)
+        if not verify_failures:
+            branch = push_branch(cfg, checkout, result["commit_message"],
+                                 batch_date, batch_index)
     return {
         "repo": repo.name,
         "summary": result.get("summary", ""),
         "applied": applied,
         "skipped_protected": skipped,
+        "verify_failures": verify_failures,
         "branch": branch,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }

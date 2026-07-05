@@ -101,6 +101,24 @@ Batch state — suggestions, run status, result branches — is committed under
   containing `..`, or resolving outside the repo checkout.
 - Improvement branches are never auto-merged — human review of each
   `ci/improvements-*` branch is the final control. Keep it that way.
+- **Verify before push (api mode):** changed `.py` files are syntax-checked
+  before the branch is pushed; failures are recorded in batch results
+  instead. Set `verify.run_tests: true` to also run the repo's pytest suite
+  (off by default — it executes the target repo's code).
+
+## Reliability & cost behavior
+
+- **Unchanged repos are skipped:** the review records each repo's HEAD SHA in
+  `state/last_review.json` and skips repos with no new commits
+  (`review --force` overrides) — no Grok spend on quiet days.
+- **Batches are never overwritten:** re-running the review on the same day is
+  a no-op; delete `state/batches/<date>/` to redo it.
+- **Stale batches expire:** batches pending > 3 days (code has moved on) or
+  stuck in `running` > 6 hours (crashed runner) are marked `stale` instead of
+  silently lingering or running late.
+- **Grok retries are cost-aware:** transport errors back off and retry; a
+  malformed-JSON reply gets one short corrective nudge instead of resending
+  the full ~90K-token prompt repeatedly.
 
 ## Tuning
 

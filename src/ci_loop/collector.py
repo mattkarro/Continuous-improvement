@@ -175,8 +175,12 @@ def collect_logs(checkout: Path, repo: RepoConfig, max_chars: int,
     return "".join(chunks) if chunks else "(no logs found)"
 
 
-def snapshot_repo(cfg: Config, repo: RepoConfig) -> RepoSnapshot:
-    checkout = clone_or_update(repo, cfg.workdir)
+def head_sha(checkout: Path) -> str:
+    return subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, check=True).stdout.strip()
+
+
+def snapshot_from_checkout(cfg: Config, repo: RepoConfig, checkout: Path) -> RepoSnapshot:
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     zip_path = cfg.artifacts_dir / date / f"{repo.name}.zip"
     build_zip(checkout, zip_path, cfg.secret_file_patterns)
@@ -187,3 +191,8 @@ def snapshot_repo(cfg: Config, repo: RepoConfig) -> RepoSnapshot:
         code_digest=build_code_digest(checkout, cfg.max_code_chars, cfg.secret_file_patterns),
         logs=collect_logs(checkout, repo, cfg.max_log_chars, cfg.secret_file_patterns),
     )
+
+
+def snapshot_repo(cfg: Config, repo: RepoConfig) -> RepoSnapshot:
+    checkout = clone_or_update(repo, cfg.workdir)
+    return snapshot_from_checkout(cfg, repo, checkout)

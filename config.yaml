@@ -41,6 +41,13 @@ batching:
 # Branch prefix used when pushing Claude's code updates to a target repo.
 update_branch_prefix: ci/improvements
 
+verify:
+  # api mode pre-push gate: syntax-check changed .py files (no code execution).
+  compile_check: true
+  # Also run the target repo's pytest suite before pushing. Off by default —
+  # it EXECUTES the target repo's code on the runner.
+  run_tests: false
+
 security:
   # File name/path patterns (fnmatch, case-insensitive) that are NEVER
   # included in zips, code digests, or log collection — they may hold

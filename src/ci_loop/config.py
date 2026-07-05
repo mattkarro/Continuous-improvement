@@ -39,6 +39,8 @@ class Config:
     update_branch_prefix: str
     secret_file_patterns: list[str]
     protected_paths: list[str]
+    verify_compile: bool
+    verify_run_tests: bool
     workdir: Path
     artifacts_dir: Path
     state_dir: Path
@@ -75,6 +77,8 @@ def load_config(path: Path | None = None) -> Config:
         secret_file_patterns=list(
             security.get("secret_file_patterns", DEFAULT_SECRET_FILE_PATTERNS)),
         protected_paths=list(security.get("protected_paths", DEFAULT_PROTECTED_PATHS)),
+        verify_compile=bool(raw.get("verify", {}).get("compile_check", True)),
+        verify_run_tests=bool(raw.get("verify", {}).get("run_tests", False)),
         workdir=ROOT / paths.get("workdir", "workdir"),
         artifacts_dir=ROOT / paths.get("artifacts", "artifacts"),
         state_dir=ROOT / paths.get("state", "state"),

@@ -56,22 +56,9 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"Grok response was not valid JSON: {text[:500]}")
 
 
-def review_snapshot(cfg: Config, snap: RepoSnapshot) -> list[dict]:
-    """Return a list of suggestion dicts for one repo."""
-    user_content = (
-        f"Repository: {snap.repo.github}\n\n"
-        f"--- RECENT LOGS ---\n{snap.logs}\n\n"
-        f"--- CODE SNAPSHOT ---\n{snap.code_digest}"
-    )
-    payload = {
-        "model": cfg.grok_model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "temperature": 0.2,
-    }
-
+def _call_grok(cfg: Config, messages: list[dict]) -> str:
+    """POST to Grok with backoff on transport/transient errors only."""
+    payload = {"model": cfg.grok_model, "messages": messages, "temperature": 0.2}
     last_error: Exception | None = None
     for attempt in range(4):
         try:
@@ -84,14 +71,41 @@ def review_snapshot(cfg: Config, snap: RepoSnapshot) -> list[dict]:
             if resp.status_code in (429, 500, 502, 503, 529):
                 raise RuntimeError(f"Grok transient error {resp.status_code}: {resp.text[:200]}")
             resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
-            data = _extract_json(text)
-            suggestions = data.get("suggestions", [])
-            for s in suggestions:
-                s["repo"] = snap.repo.name
-                s["github"] = snap.repo.github
-            return suggestions
-        except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
+            return resp.json()["choices"][0]["message"]["content"]
+        except (requests.RequestException, RuntimeError, KeyError) as exc:
             last_error = exc
             time.sleep(2 ** (attempt + 1))
-    raise RuntimeError(f"Grok review failed for {snap.repo.name}: {last_error}")
+    raise RuntimeError(f"Grok request failed after retries: {last_error}")
+
+
+def review_snapshot(cfg: Config, snap: RepoSnapshot) -> list[dict]:
+    """Return a list of suggestion dicts for one repo."""
+    user_content = (
+        f"Repository: {snap.repo.github}\n\n"
+        f"--- RECENT LOGS ---\n{snap.logs}\n\n"
+        f"--- CODE SNAPSHOT ---\n{snap.code_digest}"
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+    text = _call_grok(cfg, messages)
+    try:
+        data = _extract_json(text)
+    except (ValueError, json.JSONDecodeError):
+        # One cheap corrective retry — do NOT resend the full prompt N times
+        # for what is a deterministic formatting failure.
+        messages = messages + [
+            {"role": "assistant", "content": text[:4000]},
+            {"role": "user", "content": "Your previous reply was not valid JSON. "
+                                        "Reply with ONLY the JSON object in the required schema."},
+        ]
+        text = _call_grok(cfg, messages)
+        data = _extract_json(text)
+
+    suggestions = data.get("suggestions", [])
+    for s in suggestions:
+        s["repo"] = snap.repo.name
+        s["github"] = snap.repo.github
+    return suggestions

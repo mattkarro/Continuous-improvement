@@ -8,6 +8,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
+DEFAULT_SECRET_FILE_PATTERNS = [
+    ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "*.keystore",
+    "*credential*", "*secret*", "*apikey*", "*api_key*",
+    "id_rsa*", "id_ed25519*", ".netrc", ".npmrc", ".pypirc",
+]
+DEFAULT_PROTECTED_PATHS = [".github/", ".git/"]
+
 
 @dataclass
 class RepoConfig:
@@ -30,6 +37,8 @@ class Config:
     slots_utc: list[str]
     max_suggestions_per_batch: int
     update_branch_prefix: str
+    secret_file_patterns: list[str]
+    protected_paths: list[str]
     workdir: Path
     artifacts_dir: Path
     state_dir: Path
@@ -44,6 +53,7 @@ def load_config(path: Path | None = None) -> Config:
     claude = raw.get("claude", {})
     batching = raw.get("batching", {})
     paths = raw.get("paths", {})
+    security = raw.get("security", {})
 
     mode = raw.get("mode", "todo")
     if mode not in ("todo", "api"):
@@ -62,6 +72,9 @@ def load_config(path: Path | None = None) -> Config:
         slots_utc=list(batching.get("slots_utc", ["06:15", "11:45", "17:20", "22:50"])),
         max_suggestions_per_batch=int(batching.get("max_suggestions_per_batch", 5)),
         update_branch_prefix=raw.get("update_branch_prefix", "ci/improvements"),
+        secret_file_patterns=list(
+            security.get("secret_file_patterns", DEFAULT_SECRET_FILE_PATTERNS)),
+        protected_paths=list(security.get("protected_paths", DEFAULT_PROTECTED_PATHS)),
         workdir=ROOT / paths.get("workdir", "workdir"),
         artifacts_dir=ROOT / paths.get("artifacts", "artifacts"),
         state_dir=ROOT / paths.get("state", "state"),

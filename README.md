@@ -87,6 +87,21 @@ by Claude. Review the branch and merge (or open a PR) when you're happy with it.
 Batch state — suggestions, run status, result branches — is committed under
 `state/batches/` so every run is auditable.
 
+## Safety guardrails
+
+- **Secret hygiene:** files matching `security.secret_file_patterns` (`.env*`,
+  keys, credentials, etc.) are never included in zips, code digests, or log
+  collection, and credential-shaped strings (API keys, tokens, `password=...`)
+  are redacted from everything sent to Grok/Claude or archived.
+- **Protected paths:** generated changes may never touch
+  `security.protected_paths` (default `.github/`, `.git/`) — pushed workflow
+  changes would otherwise run with the target repo's secrets. Enforced in
+  api mode; stated as a hard rule in todo-mode prompts.
+- **Path containment:** model-emitted file paths are rejected if absolute,
+  containing `..`, or resolving outside the repo checkout.
+- Improvement branches are never auto-merged — human review of each
+  `ci/improvements-*` branch is the final control. Keep it that way.
+
 ## Tuning
 
 Everything is in `config.yaml`: which repos are watched, log glob patterns,

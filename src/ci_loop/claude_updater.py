@@ -46,6 +46,8 @@ Rules:
 - Return the FULL content of every file you create or modify — not diffs.
 - Keep changes focused on the suggestions; do not refactor unrelated code.
 - Match the existing code style of the repository.
+- NEVER create, modify, or delete files under .github/ or any CI/workflow
+  configuration — such changes will be rejected.
 - If a suggestion is unsafe or cannot be implemented from the available
   context, skip it and explain why in the summary.
 """
@@ -68,7 +70,7 @@ def generate_changes(cfg: Config, repo: RepoConfig, checkout: Path,
     import anthropic  # imported lazily: only needed in api mode
 
     client = anthropic.Anthropic()
-    digest = build_code_digest(checkout, cfg.max_code_chars)
+    digest = build_code_digest(checkout, cfg.max_code_chars, cfg.secret_file_patterns)
     user_content = (
         f"Repository: {repo.github}\n\n"
         f"--- SUGGESTIONS TO IMPLEMENT ---\n{_format_suggestions(suggestions)}\n\n"
@@ -94,13 +96,49 @@ def generate_changes(cfg: Config, repo: RepoConfig, checkout: Path,
     return json.loads(text)
 
 
-def apply_changes(checkout: Path, changes: list[dict]) -> list[str]:
-    applied = []
+def is_protected_path(rel: str, protected_paths: list[str]) -> bool:
+    """True if the model must not touch this path (e.g. CI workflow files)."""
+    import fnmatch
+
+    rel_norm = rel.replace("\\", "/").lower()
+    for raw in protected_paths:
+        p = raw.replace("\\", "/").lower()
+        if p.endswith("/"):
+            if rel_norm.startswith(p) or rel_norm == p.rstrip("/"):
+                return True
+        elif rel_norm == p or fnmatch.fnmatch(rel_norm, p):
+            return True
+    return False
+
+
+def apply_changes(checkout: Path, changes: list[dict],
+                  protected_paths: list[str]) -> tuple[list[str], list[str]]:
+    """Apply model-generated file operations inside the checkout.
+
+    Model output is untrusted: reject anything that escapes the repo,
+    touches .git internals, or lands on a protected path (CI workflows run
+    with repo secrets when the branch is pushed, so they are off-limits).
+
+    Returns (applied, skipped) descriptions.
+    """
+    checkout_root = checkout.resolve()
+    applied: list[str] = []
+    skipped: list[str] = []
     for change in changes:
-        rel = change["path"].lstrip("/")
-        target = (checkout / rel).resolve()
-        if not str(target).startswith(str(checkout.resolve())):
-            raise ValueError(f"Change path escapes repo: {change['path']}")
+        raw_path = change["path"]
+        rel_path = Path(raw_path)
+        if rel_path.is_absolute() or any(part in ("..", ".git") for part in rel_path.parts):
+            raise ValueError(f"Unsafe change path from model: {raw_path!r}")
+        rel = rel_path.as_posix()
+
+        if is_protected_path(rel, protected_paths):
+            skipped.append(f"{change['action']} {rel} (protected path)")
+            continue
+
+        target = (checkout / rel_path).resolve()
+        if not target.is_relative_to(checkout_root):
+            raise ValueError(f"Change path escapes repo: {raw_path!r}")
+
         if change["action"] == "delete":
             if target.exists():
                 target.unlink()
@@ -109,7 +147,7 @@ def apply_changes(checkout: Path, changes: list[dict]) -> list[str]:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(change["content"])
             applied.append(f"{change['action']} {rel}")
-    return applied
+    return applied, skipped
 
 
 def _git(checkout: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -136,7 +174,8 @@ def run_batch_for_repo(cfg: Config, repo: RepoConfig, suggestions: list[dict],
                        batch_date: str, batch_index: int) -> dict:
     checkout = clone_or_update(repo, cfg.workdir)
     result = generate_changes(cfg, repo, checkout, suggestions)
-    applied = apply_changes(checkout, result.get("changes", []))
+    applied, skipped = apply_changes(checkout, result.get("changes", []),
+                                     cfg.protected_paths)
     branch = None
     if applied:
         branch = push_branch(cfg, checkout, result["commit_message"],
@@ -145,6 +184,7 @@ def run_batch_for_repo(cfg: Config, repo: RepoConfig, suggestions: list[dict],
         "repo": repo.name,
         "summary": result.get("summary", ""),
         "applied": applied,
+        "skipped_protected": skipped,
         "branch": branch,
         "completed_at": datetime.now(timezone.utc).isoformat(),
     }

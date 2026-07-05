@@ -83,6 +83,8 @@ def cmd_run_batch() -> int:
                 cfg, repo, suggestions, data["date"], data["index"])
             print(f"[run-batch] {repo_name}: {len(result['applied'])} changes, "
                   f"branch={result['branch']}")
+            for s in result.get("skipped_protected", []):
+                print(f"[run-batch] {repo_name}: SKIPPED {s}")
         except Exception as exc:  # keep going on the other repos
             print(f"[run-batch] ERROR on {repo_name}: {exc}", file=sys.stderr)
             result = {"repo": repo_name, "error": str(exc)}

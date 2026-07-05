@@ -41,6 +41,34 @@ batching:
 # Branch prefix used when pushing Claude's code updates to a target repo.
 update_branch_prefix: ci/improvements
 
+security:
+  # File name/path patterns (fnmatch, case-insensitive) that are NEVER
+  # included in zips, code digests, or log collection — they may hold
+  # credentials that must not reach an external API or a CI artifact.
+  secret_file_patterns:
+    - ".env"
+    - ".env.*"
+    - "*.pem"
+    - "*.key"
+    - "*.p12"
+    - "*.pfx"
+    - "*.keystore"
+    - "*credential*"
+    - "*secret*"
+    - "*apikey*"
+    - "*api_key*"
+    - "id_rsa*"
+    - "id_ed25519*"
+    - ".netrc"
+    - ".npmrc"
+    - ".pypirc"
+  # Paths the update step is never allowed to create/modify/delete in a
+  # target repo. Protects against generated changes altering CI workflows,
+  # which run with the repo's secrets when a branch is pushed.
+  protected_paths:
+    - ".github/"
+    - ".git/"
+
 paths:
   workdir: workdir        # clones of target repos (gitignored)
   artifacts: artifacts    # zip snapshots (gitignored, uploaded as CI artifacts)

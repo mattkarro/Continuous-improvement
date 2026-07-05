@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from . import batcher, claude_updater, grok_reviewer, todo_writer
 from .collector import clone_or_update, head_sha, snapshot_from_checkout
-from .config import load_config
+from .config import load_config, load_dotenv
 
 
 def _last_review_path(cfg):
@@ -174,6 +174,9 @@ def cmd_status() -> int:
 
 
 def main() -> int:
+    loaded = load_dotenv()
+    if loaded:
+        print(f"[env] loaded from .env: {', '.join(loaded)}")
     parser = argparse.ArgumentParser(prog="ci_loop")
     sub = parser.add_subparsers(dest="command", required=True)
     p_review = sub.add_parser("review", help="snapshot repos, run Grok review, create batches")

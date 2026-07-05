@@ -71,7 +71,7 @@ Add these **Actions secrets** to this repository
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # fill in keys, then export them
+cp .env.example .env   # fill in keys — loaded automatically by the CLI
 export PYTHONPATH=src
 
 python -m ci_loop.cli review      # snapshot + Grok review + batches (+ todo prompts in todo mode)

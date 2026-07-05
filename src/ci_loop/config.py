@@ -90,6 +90,30 @@ def load_config(path: Path | None = None) -> Config:
     )
 
 
+def load_dotenv(path: Path | None = None) -> list[str]:
+    """Load KEY=VALUE pairs from .env into the environment.
+
+    Real environment variables always win — values from .env are only used
+    for keys that aren't already set (so CI secrets are never overridden).
+    Returns the list of keys that were loaded.
+    """
+    path = path or ROOT / ".env"
+    if not path.exists():
+        return []
+    loaded = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ and value:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def github_token() -> str:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
